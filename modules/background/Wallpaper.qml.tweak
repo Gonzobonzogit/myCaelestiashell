@@ -1,0 +1,181 @@
+pragma ComponentBehavior: Bound
+
+import qs.components
+import qs.components.images
+import qs.components.filedialog
+import qs.services
+import qs.config
+import qs.utils
+import Quickshell
+import QtQuick
+
+Item {
+    id: root
+
+    property string source: Wallpapers.current
+    property var current: one
+
+    anchors.fill: parent
+
+    onSourceChanged: {
+        if (!source)
+            current = null;
+        else if (current === one)
+            two.update();
+        else
+            one.update();
+    }
+
+    Component.onCompleted: {
+        if (source)
+            Qt.callLater(() => one.update());
+    }
+
+    Loader {
+        anchors.fill: parent
+
+        active: !root.source
+        asynchronous: true
+
+        sourceComponent: StyledRect {
+            color: Colours.palette.m3surfaceContainer
+
+            Row {
+                anchors.centerIn: parent
+                spacing: Appearance.spacing.large
+
+                MaterialIcon {
+                    text: "sentiment_stressed"
+                    color: Colours.palette.m3onSurfaceVariant
+                    font.pointSize: Appearance.font.size.extraLarge * 5
+                }
+
+                Column {
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: Appearance.spacing.small
+
+                    StyledText {
+                        text: qsTr("Wallpaper missing?")
+                        color: Colours.palette.m3onSurfaceVariant
+                        font.pointSize: Appearance.font.size.extraLarge * 2
+                        font.bold: true
+                    }
+
+                    StyledRect {
+                        implicitWidth: selectWallText.implicitWidth + Appearance.padding.large * 2
+                        implicitHeight: selectWallText.implicitHeight + Appearance.padding.small * 2
+
+                        radius: Appearance.rounding.full
+                        color: Colours.palette.m3primary
+
+                        FileDialog {
+                            id: dialog
+
+                            title: qsTr("Select a wallpaper")
+                            filterLabel: qsTr("Image files")
+                            filters: Images.validImageExtensions
+                            onAccepted: path => Wallpapers.setWallpaper(path)
+                        }
+
+                        StateLayer {
+                            radius: parent.radius
+                            color: Colours.palette.m3onPrimary
+
+                            function onClicked(): void {
+                                dialog.open();
+                            }
+                        }
+
+                        StyledText {
+                            id: selectWallText
+
+                            anchors.centerIn: parent
+
+                            text: qsTr("Set it now!")
+                            color: Colours.palette.m3onPrimary
+                            font.pointSize: Appearance.font.size.large
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Img {
+        id: one
+    }
+
+    Img {
+        id: two
+    }
+
+    component Img: Item {
+        id: img
+
+        property alias path: image.path
+        property alias status: image.status
+
+        function update(): void {
+            if (path === root.source)
+                root.current = this;
+            else
+                path = root.source;
+        }
+
+        anchors.fill: parent
+
+        property real revealProgress: 0
+
+        onStatusChanged: {
+            if (status === Image.Ready)
+                root.current = this;
+        }
+
+        states: State {
+            name: "visible"
+            when: root.current === img
+
+            PropertyChanges {
+                img.revealProgress: 1
+            }
+        }
+
+        transitions: Transition {
+            Anim {
+                target: img
+                property: "revealProgress"
+            }
+        }
+
+        CachingImage {
+            id: image
+            anchors.fill: parent
+            z: Config.background.transitionType === "circular" ? -1 : 0
+
+            // Always visible so layer can capture it
+            visible: true
+            opacity: Config.background.transitionType === "fade" ? img.revealProgress : 1
+            scale: Config.background.transitionType === "fade"
+                   ? (Wallpapers.showPreview ? 1 : 0.8 + (img.revealProgress * 0.2))
+                   : 1
+
+            // Enable layer for circular mode to use as shader texture
+            layer.enabled: Config.background.transitionType === "circular" && root.current === img
+            layer.smooth: true
+        }
+
+        ShaderEffect {
+            id: circularReveal
+            anchors.fill: parent
+            z: 0
+            // Only visible when this image is current and in circular mode
+            visible: Config.background.transitionType === "circular" && root.current === img
+
+            property variant source: image
+            property real progress: img.revealProgress
+            property real aspectRatio: width / height
+
+            fragmentShader: Qt.resolvedUrl(`${Quickshell.shellDir}/assets/shaders/circularreveal.frag.qsb`)
+        }
+    }
+}
